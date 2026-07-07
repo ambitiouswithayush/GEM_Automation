@@ -1,0 +1,677 @@
+{
+  "updatedAt": "2026-07-03T09:36:12.483Z",
+  "createdAt": "2026-07-03T09:36:12.483Z",
+  "id": "ulWAsv2WrWQWJid8",
+  "name": "bid-ra pipeline",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "e6d9ff9a-b9f5-41ba-a770-d8f9cb008b8a",
+      "name": "Hourly Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        120
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "459143aa-b236-463e-94d4-b20510fbb387",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        360
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "946b30dd-8619-4bb9-89e6-a67a87c80469",
+      "name": "Health Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        240
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://127.0.0.1:8888/health",
+        "options": {}
+      }
+    },
+    {
+      "id": "a81460b9-ccd5-47d4-bfbe-911332f6d0c9",
+      "name": "Server Up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "292fa3a5-f929-4a12-a035-735114be999f",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ok",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "f518ce48-0017-467a-9492-988bf548b94f",
+      "name": "Set CPU Mode",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        120
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const now = new Date();\nconst istMs = now.getTime() + (5*60+30)*60*1000;\nconst ist = new Date(istMs);\nconst totalMin = ist.getUTCHours()*60 + ist.getUTCMinutes();\nconst isLow = totalMin >= 22*60 || totalMin < 7*60+30;\nreturn [{ json: {\n  cpu_mode:            isLow ? 'LOW (20%)'  : 'HIGH (30%)',\n  fetch_workers:       isLow ? 7  : 10,\n  scrape_workers:      isLow ? 13 : 20,\n  download_workers:    isLow ? 10 : 15,\n  extract_bid_workers: isLow ? 17 : 25,\n  extract_ra_workers:  isLow ? 13 : 20,\n}}];"
+      }
+    },
+    {
+      "id": "f299bb5e-23d4-4467-b835-58850d324ee5",
+      "name": "Stage 1 - Fire Bid Fetch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        920,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8888/run-bid-fetch",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "workers",
+              "value": "={{ $('Set CPU Mode').first().json.fetch_workers }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a9c8b2cc-90de-484d-b93d-1bdf6599bccd",
+      "name": "Wait 90 min - Fetch",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1140,
+        120
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 90,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "cd746eef-3956-4a76-958c-049a6e600c82",
+      "name": "Stage 2A - Fire Scrape Bids",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1380,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8888/run-scrape-bids",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "workers",
+              "value": "={{ $('Set CPU Mode').first().json.scrape_workers }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "596d61e1-b15f-49e1-ab6f-8ac0e009d8cf",
+      "name": "Stage 2B - Fire Scrape RA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1380,
+        240
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8888/run-scrape-ra",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "workers",
+              "value": "={{ $('Set CPU Mode').first().json.scrape_workers }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1f357ca1-5f28-4273-b7d7-b74aa7667cd6",
+      "name": "Merge - Scraping Done",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1620,
+        120
+      ],
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      }
+    },
+    {
+      "id": "3e54d1de-e3f2-4f0b-b0f5-cf0af4746abf",
+      "name": "Wait 45 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1840,
+        120
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 45,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "bb1ecf88-e135-473a-9a4f-7e9a2f1fdede",
+      "name": "Stage 2C - Fire All 5 Downloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2060,
+        120
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const base = 'http://127.0.0.1:8888';\nconst workers = $('Set CPU Mode').first().json.download_workers;\nconst calls = [1,2,3,4,5].map(i =>\n  $helpers.httpRequest({\n    method: 'POST',\n    url: `${base}/run-download-bid-pdfs?instance=${i}&workers=${workers}`,\n  })\n);\nconst results = await Promise.all(calls);\nreturn results.map((r, i) => ({ json: { instance: i+1, ...r } }));"
+      }
+    },
+    {
+      "id": "b2c6464c-425d-4b4c-b77f-6e19fe44b73e",
+      "name": "Wait 90 min - Downloads",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2280,
+        120
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 90,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "08dfb54b-fad7-4791-9692-9c0ba474dba0",
+      "name": "Stage 3A - Fire Extract Bid PDFs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2520,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8888/run-extract-bid-pdfs",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "workers",
+              "value": "={{ $('Set CPU Mode').first().json.extract_bid_workers }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "192d5485-f7b7-4054-aecb-c6b47ac204c8",
+      "name": "Stage 3B - Fire Extract RA PDFs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2520,
+        240
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8888/run-extract-ra-pdfs",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "workers",
+              "value": "={{ $('Set CPU Mode').first().json.extract_ra_workers }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6f31a0a7-3f41-434b-b77e-43c84fe2e81f",
+      "name": "Merge - Extraction Done",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2760,
+        120
+      ],
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      }
+    },
+    {
+      "id": "6bb1b2ca-7523-4b8f-91ce-ba34f2df48b7",
+      "name": "Wait 120 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2980,
+        120
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 120,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "10e002df-4c76-4e6e-b389-bc007a901265",
+      "name": "Stage 3.5 - Fire Bundle Docs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3200,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8888/run-bundle-bid-docs",
+        "options": {}
+      }
+    },
+    {
+      "id": "87fa3ca1-bb22-4a1c-b373-c2eec27bded9",
+      "name": "Wait 30 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3420,
+        120
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 30,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "bc6cbb05-172e-42c7-9a25-c180ea0c4ab9",
+      "name": "Stage 4 - Fire Supabase Sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3640,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8888/run-bid-ra-supabase-sync",
+        "options": {}
+      }
+    },
+    {
+      "id": "1ff09c82-ec8f-444e-b467-e04ab47f069c",
+      "name": "Wait 20 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3860,
+        120
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 20,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "f65c682c-8161-4801-b52d-dc877665b7eb",
+      "name": "Final Stats & Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        120
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const { Client } = require('pg');\nconst pg = new Client({ connectionString: 'postgresql://gem_user:gem_pass@localhost:5432/gem_enterprise' });\nawait pg.connect();\nconst { rows } = await pg.query(`\n  SELECT\n    COUNT(*)                                              AS total_bids,\n    COUNT(*) FILTER (WHERE download_status  = 'DONE')   AS pdfs_downloaded,\n    COUNT(*) FILTER (WHERE extraction_status = 'DONE')  AS pdfs_extracted,\n    COUNT(*) FILTER (WHERE bundle_status    = 'DONE')   AS docs_bundled\n  FROM bid_ra_status\n`);\nawait pg.end();\nconst s = rows[0];\nreturn [{ json: {\n  message:         '\u2705 GeM Bid/RA Pipeline Complete',\n  total_bids:      Number(s.total_bids),\n  pdfs_downloaded: Number(s.pdfs_downloaded),\n  pdfs_extracted:  Number(s.pdfs_extracted),\n  docs_bundled:    Number(s.docs_bundled),\n  run_at:          new Date().toISOString(),\n}}];"
+      }
+    }
+  ],
+  "connections": {
+    "Hourly Trigger": {
+      "main": [
+        [
+          {
+            "node": "Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Check": {
+      "main": [
+        [
+          {
+            "node": "Server Up?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Server Up?": {
+      "main": [
+        [
+          {
+            "node": "Set CPU Mode",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Set CPU Mode": {
+      "main": [
+        [
+          {
+            "node": "Stage 1 - Fire Bid Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 1 - Fire Bid Fetch": {
+      "main": [
+        [
+          {
+            "node": "Wait 90 min - Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 90 min - Fetch": {
+      "main": [
+        [
+          {
+            "node": "Stage 2A - Fire Scrape Bids",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Stage 2B - Fire Scrape RA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 2A - Fire Scrape Bids": {
+      "main": [
+        [
+          {
+            "node": "Merge - Scraping Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 2B - Fire Scrape RA": {
+      "main": [
+        [
+          {
+            "node": "Merge - Scraping Done",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge - Scraping Done": {
+      "main": [
+        [
+          {
+            "node": "Wait 45 min",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 45 min": {
+      "main": [
+        [
+          {
+            "node": "Stage 2C - Fire All 5 Downloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 2C - Fire All 5 Downloads": {
+      "main": [
+        [
+          {
+            "node": "Wait 90 min - Downloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 90 min - Downloads": {
+      "main": [
+        [
+          {
+            "node": "Stage 3A - Fire Extract Bid PDFs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Stage 3B - Fire Extract RA PDFs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 3A - Fire Extract Bid PDFs": {
+      "main": [
+        [
+          {
+            "node": "Merge - Extraction Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 3B - Fire Extract RA PDFs": {
+      "main": [
+        [
+          {
+            "node": "Merge - Extraction Done",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge - Extraction Done": {
+      "main": [
+        [
+          {
+            "node": "Wait 120 min",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 120 min": {
+      "main": [
+        [
+          {
+            "node": "Stage 3.5 - Fire Bundle Docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 3.5 - Fire Bundle Docs": {
+      "main": [
+        [
+          {
+            "node": "Wait 30 min",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30 min": {
+      "main": [
+        [
+          {
+            "node": "Stage 4 - Fire Supabase Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 4 - Fire Supabase Sync": {
+      "main": [
+        [
+          {
+            "node": "Wait 20 min",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 20 min": {
+      "main": [
+        [
+          {
+            "node": "Final Stats & Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "bb244449-3288-45a3-b89a-03d3741d9158",
+  "activeVersionId": null,
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-07-03T09:36:12.487Z",
+      "createdAt": "2026-07-03T09:36:12.487Z",
+      "role": "workflow:owner",
+      "workflowId": "ulWAsv2WrWQWJid8",
+      "projectId": "pgalII1QPxiEEwiA",
+      "project": {
+        "updatedAt": "2026-06-24T11:28:02.601Z",
+        "createdAt": "2026-06-24T11:10:14.886Z",
+        "id": "pgalII1QPxiEEwiA",
+        "name": "Ayush Kumar <ayushtilakmaidan@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "4bb2c010-ff07-453a-aa0c-ce1f55e4bb16"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}
