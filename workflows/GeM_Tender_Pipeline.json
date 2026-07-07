@@ -1,0 +1,975 @@
+{
+  "updatedAt": "2026-07-03T18:45:02.000Z",
+  "createdAt": "2026-06-30T14:08:46.402Z",
+  "id": "lROCGtK40qKaHX52",
+  "name": "GeM Tender Pipeline",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "36215c55-f920-4067-a2c0-d16127998971",
+      "name": "CPU Check (<80%)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        880,
+        300
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "9sqcUFJt2fzyY4pO",
+          "name": "GeM Localhost SSH"
+        }
+      },
+      "parameters": {
+        "authentication": "privateKey",
+        "host": "127.0.0.1",
+        "port": 9357,
+        "username": "ayushh123",
+        "command": "# Sample CPU idle over 2 quick readings\nIDLE1=$(top -bn1 | grep '%Cpu' | awk '{for(i=1;i<=NF;i++) if($i~/id,/) print $(i-1)}')\nsleep 1\nIDLE2=$(top -bn1 | grep '%Cpu' | awk '{for(i=1;i<=NF;i++) if($i~/id,/) print $(i-1)}')\nIDLE=$(echo \"($IDLE1 + $IDLE2) / 2\" | bc -l 2>/dev/null || echo $IDLE1)\nUSED=$(echo \"100 - $IDLE\" | bc -l 2>/dev/null | xargs printf '%.1f')\necho \"CPU_USED:${USED}\"\n# Warn if > 50%, hard block if > 80%\nINT_USED=$(echo $USED | cut -d'.' -f1)\n[ \"$INT_USED\" -ge 80 ] && echo 'CPU_STATUS:HIGH' || ([ \"$INT_USED\" -ge 50 ] && echo 'CPU_STATUS:WARN' || echo 'CPU_STATUS:OK')",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "8e4960f2-a150-4615-8514-071aeaa714d5",
+      "name": "CPU OK? (<80%)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "b7a50cc9-184b-4e81-b37f-29f31f5e773d",
+              "leftValue": "={{ $json.stdout.includes('CPU_STATUS:HIGH') }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c16062ae-8180-4ac6-9cb4-50ba25122de9",
+      "name": "CPU High \u2014 Skip Cycle",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        500
+      ],
+      "parameters": {
+        "jsCode": "const stdout = $input.first().json.stdout || '';\nconst match = stdout.match(/CPU_USED:([\\d.]+)/);\nconst pct = match ? match[1] : '?';\nreturn [{ json: { skipped: true, reason: `CPU at ${pct}% \u2014 exceeds 80% hard limit. Skipping this cycle.`, cpu_pct: pct } }];"
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8-22 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "30 8-21 * * *"
+            }
+          ]
+        }
+      },
+      "id": "963b2e49-f1c0-4d2f-ad97-59162864868a",
+      "name": "8AM\u201310PM IST every 30min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        304
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a6a68a2e-ac12-415e-8b89-20dcaa15c703",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        1336,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "cd /home/harshit_BS/Desktop/Onging_Bids_tender && docker compose up --exit-code-from gem-scraper gem-scraper 2>&1; echo EXIT_CODE:$?"
+      },
+      "id": "f974bce9-8bae-40f7-85c3-f4029d5aa9c8",
+      "name": "Stage 1 \u2014 Scrape Bids",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        1848,
+        304
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "9sqcUFJt2fzyY4pO",
+          "name": "GeM Localhost SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "63a63744-2bde-4fef-afe0-ec30c327d956",
+              "leftValue": "={{ $json.stdout.includes('EXIT_CODE:0') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2ff70f67-0aef-4f95-b4d5-5effb128ebf6",
+      "name": "Stage 1 \u2014 Scrape Bids OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2104,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nlet host = 'unknown';\ntry { host = require('os').hostname(); } catch(e) {}\nconst msg = [\n  '\\u274c GeM Tender Pipeline FAILED',\n  'Stage : Stage 1 \u2014 Scrape Bids',\n  'Time  : ' + new Date().toISOString(),\n  'Host  : ' + host,\n  '',\n  'STDOUT:',\n  String(r.stdout || 'none').substring(0, 800),\n  '',\n  'STDERR:',\n  String(r.stderr || 'none'),\n].join('\\n');\n// REPLACE THIS NODE with Telegram / Slack / Email / Webhook\n// Use {{ $json.message }} as the body\nreturn [{ json: { message: msg, stage: 'Stage 1 \u2014 Scrape Bids', stdout: r.stdout, stderr: r.stderr } }];"
+      },
+      "id": "24b352d6-899f-4b42-b2e1-5177df2dd626",
+      "name": "Stage 1 Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2104,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "cd /home/harshit_BS/Desktop/Onging_Bids_tender && docker compose up --exit-code-from gem-downloader gem-downloader 2>&1; echo EXIT_CODE:$?"
+      },
+      "id": "d8c32610-d4a3-4650-9615-f479cd449888",
+      "name": "Stage 2 \u2014 Download PDFs",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        2360,
+        304
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "9sqcUFJt2fzyY4pO",
+          "name": "GeM Localhost SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "41a088e6-8fc3-4af6-a2e5-7b7946b92159",
+              "leftValue": "={{ $json.stdout.includes('EXIT_CODE:0') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "944da115-9979-4c63-9577-16c0f8f3332f",
+      "name": "Stage 2 \u2014 Download PDFs OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2632,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nlet host = 'unknown';\ntry { host = require('os').hostname(); } catch(e) {}\nconst msg = [\n  '\\u274c GeM Tender Pipeline FAILED',\n  'Stage : Stage 2 \u2014 Download PDFs',\n  'Time  : ' + new Date().toISOString(),\n  'Host  : ' + host,\n  '',\n  'STDOUT:',\n  String(r.stdout || 'none').substring(0, 800),\n  '',\n  'STDERR:',\n  String(r.stderr || 'none'),\n].join('\\n');\n// REPLACE THIS NODE with Telegram / Slack / Email / Webhook\n// Use {{ $json.message }} as the body\nreturn [{ json: { message: msg, stage: 'Stage 2 \u2014 Download PDFs', stdout: r.stdout, stderr: r.stderr } }];"
+      },
+      "id": "af8064fc-cd3c-47d8-8800-cbc638e70dd2",
+      "name": "Stage 2 Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2632,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "cd /home/harshit_BS/Desktop/Onging_Bids_tender && docker compose up --exit-code-from gem-extractor gem-extractor 2>&1; echo EXIT_CODE:$?"
+      },
+      "id": "ece4dc57-1d10-4d0d-9c4c-b0b2193bf859",
+      "name": "Stage 3 \u2014 Extract Hyperlinks",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        2888,
+        304
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "9sqcUFJt2fzyY4pO",
+          "name": "GeM Localhost SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "4d7900f6-b25a-4bff-b232-bb3c0aea34d9",
+              "leftValue": "={{ $json.stdout.includes('EXIT_CODE:0') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9fde5808-236f-4591-b18c-0e7aeb81746f",
+      "name": "Stage 3 \u2014 Extract Hyperlinks OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3144,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nlet host = 'unknown';\ntry { host = require('os').hostname(); } catch(e) {}\nconst msg = [\n  '\\u274c GeM Tender Pipeline FAILED',\n  'Stage : Stage 3 \u2014 Extract Hyperlinks',\n  'Time  : ' + new Date().toISOString(),\n  'Host  : ' + host,\n  '',\n  'STDOUT:',\n  String(r.stdout || 'none').substring(0, 800),\n  '',\n  'STDERR:',\n  String(r.stderr || 'none'),\n].join('\\n');\n// REPLACE THIS NODE with Telegram / Slack / Email / Webhook\n// Use {{ $json.message }} as the body\nreturn [{ json: { message: msg, stage: 'Stage 3 \u2014 Extract Hyperlinks', stdout: r.stdout, stderr: r.stderr } }];"
+      },
+      "id": "2ea5ff67-0829-41d1-ac6d-5be245bf263c",
+      "name": "Stage 3 Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3144,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "cd /home/harshit_BS/Desktop/Onging_Bids_tender && docker compose up --exit-code-from gem-hldownloader gem-hldownloader 2>&1; echo EXIT_CODE:$?"
+      },
+      "id": "6f5cc108-ea1d-4f3e-ae39-bae3782acde7",
+      "name": "Stage 4 \u2014 Download Hyperlinks",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        3400,
+        304
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "9sqcUFJt2fzyY4pO",
+          "name": "GeM Localhost SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ecc913f3-be23-47dc-a304-47c78a4b62a4",
+              "leftValue": "={{ $json.stdout.includes('EXIT_CODE:0') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e8dc1b4c-7420-4173-9dfa-770b9eead145",
+      "name": "Stage 4 \u2014 Download Hyperlinks OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3672,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nlet host = 'unknown';\ntry { host = require('os').hostname(); } catch(e) {}\nconst msg = [\n  '\\u274c GeM Tender Pipeline FAILED',\n  'Stage : Stage 4 \u2014 Download Hyperlinks',\n  'Time  : ' + new Date().toISOString(),\n  'Host  : ' + host,\n  '',\n  'STDOUT:',\n  String(r.stdout || 'none').substring(0, 800),\n  '',\n  'STDERR:',\n  String(r.stderr || 'none'),\n].join('\\n');\n// REPLACE THIS NODE with Telegram / Slack / Email / Webhook\n// Use {{ $json.message }} as the body\nreturn [{ json: { message: msg, stage: 'Stage 4 \u2014 Download Hyperlinks', stdout: r.stdout, stderr: r.stderr } }];"
+      },
+      "id": "fb09e017-cb5e-4d19-b055-c87d8fabc3fc",
+      "name": "Stage 4 Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3672,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "cd /home/harshit_BS/Desktop/Onging_Bids_tender && docker compose run --rm gem-biddata python3 -u Bid_data_scraper.py --workers 15 2>&1; echo EXIT_CODE:$?"
+      },
+      "id": "285b10d1-a90d-40ca-a77b-eef285dd99a5",
+      "name": "Stage 5 \u2014 Bid Data Processing",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        3928,
+        304
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "9sqcUFJt2fzyY4pO",
+          "name": "GeM Localhost SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "e3e423c0-1ad5-4d56-a9c4-7566ca4c0d0a",
+              "leftValue": "={{ $json.stdout.includes('EXIT_CODE:0') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "56d3fc8f-9b03-4b93-9ee7-d731f127a1ba",
+      "name": "Stage 5 \u2014 Bid Data Processing OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4184,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nlet host = 'unknown';\ntry { host = require('os').hostname(); } catch(e) {}\nconst msg = [\n  '\\u274c GeM Tender Pipeline FAILED',\n  'Stage : Stage 5 \u2014 Bid Data Processing',\n  'Time  : ' + new Date().toISOString(),\n  'Host  : ' + host,\n  '',\n  'STDOUT:',\n  String(r.stdout || 'none').substring(0, 800),\n  '',\n  'STDERR:',\n  String(r.stderr || 'none'),\n].join('\\n');\n// REPLACE THIS NODE with Telegram / Slack / Email / Webhook\n// Use {{ $json.message }} as the body\nreturn [{ json: { message: msg, stage: 'Stage 5 \u2014 Bid Data Processing', stdout: r.stdout, stderr: r.stderr } }];"
+      },
+      "id": "c07641d7-0f88-4fbb-9876-a80526631fc4",
+      "name": "Stage 5 Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4184,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "cd /home/harshit_BS/Desktop/Onging_Bids_tender && docker compose up --exit-code-from gem-category gem-category 2>&1; echo EXIT_CODE:$?"
+      },
+      "id": "27261567-015c-45e0-9467-a7d598052983",
+      "name": "Stage 6 \u2014 Category Processing",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        4440,
+        304
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "9sqcUFJt2fzyY4pO",
+          "name": "GeM Localhost SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ee214784-89b2-4b45-986c-3a144a16569d",
+              "leftValue": "={{ $json.stdout.includes('EXIT_CODE:0') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "66ab602c-d1a6-4104-bda0-bdb6f2944ab7",
+      "name": "Stage 6 \u2014 Category Processing OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4712,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nlet host = 'unknown';\ntry { host = require('os').hostname(); } catch(e) {}\nconst msg = [\n  '\\u274c GeM Tender Pipeline FAILED',\n  'Stage : Stage 6 \u2014 Category Processing',\n  'Time  : ' + new Date().toISOString(),\n  'Host  : ' + host,\n  '',\n  'STDOUT:',\n  String(r.stdout || 'none').substring(0, 800),\n  '',\n  'STDERR:',\n  String(r.stderr || 'none'),\n].join('\\n');\n// REPLACE THIS NODE with Telegram / Slack / Email / Webhook\n// Use {{ $json.message }} as the body\nreturn [{ json: { message: msg, stage: 'Stage 6 \u2014 Category Processing', stdout: r.stdout, stderr: r.stderr } }];"
+      },
+      "id": "7e281295-9e87-48d9-9f07-4fd5fa3874d1",
+      "name": "Stage 6 Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4712,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "cd /home/harshit_BS/Desktop/Onging_Bids_tender && docker compose run -e WORKERS=10 -e BATCH_SIZE=100 --rm gem-gemini 2>&1; echo EXIT_CODE:$?"
+      },
+      "id": "af8f9039-dcdc-4480-901f-524ec58d936f",
+      "name": "Stage 7 \u2014 Gemini [SKIPPED \u2014 No Credits]",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        4968,
+        304
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "9sqcUFJt2fzyY4pO",
+          "name": "GeM Localhost SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "95314fcd-d717-4e84-9771-5972ac4f721c",
+              "leftValue": "={{ $json.stdout.includes('EXIT_CODE:0') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "328edf0e-fa75-453e-a0ea-53f1a02f7d3f",
+      "name": "Stage 7 \u2014 Gemini AI Processing OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5224,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nlet host = 'unknown';\ntry { host = require('os').hostname(); } catch(e) {}\nconst msg = [\n  '\\u274c GeM Tender Pipeline FAILED',\n  'Stage : Stage 7 \u2014 Gemini AI Processing',\n  'Time  : ' + new Date().toISOString(),\n  'Host  : ' + host,\n  '',\n  'STDOUT:',\n  String(r.stdout || 'none').substring(0, 800),\n  '',\n  'STDERR:',\n  String(r.stderr || 'none'),\n].join('\\n');\n// REPLACE THIS NODE with Telegram / Slack / Email / Webhook\n// Use {{ $json.message }} as the body\nreturn [{ json: { message: msg, stage: 'Stage 7 \u2014 Gemini AI Processing', stdout: r.stdout, stderr: r.stderr } }];"
+      },
+      "id": "f55e10d4-7bb7-45f1-8a48-955fb155b73b",
+      "name": "Stage 7 Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5224,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT download_status, hyperlink_status, hyperlink_download_status,\n  bid_extraction_status, to_be_processed_by_gemini, gemini_processing_status,\n  COUNT(*) AS count\nFROM gem_bids_listing\nGROUP BY download_status, hyperlink_status, hyperlink_download_status,\n  bid_extraction_status, to_be_processed_by_gemini, gemini_processing_status\nORDER BY download_status, hyperlink_status, hyperlink_download_status,\n  bid_extraction_status, to_be_processed_by_gemini, gemini_processing_status;",
+        "options": {}
+      },
+      "id": "81f11d07-bb96-4de1-b043-d33fdcf4e996",
+      "name": "PostgreSQL \u2014 Summary Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        5480,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ycsxNKiRBlN1L9kN",
+          "name": "GeM Local PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst total = rows.reduce((s, r) => s + parseInt(r.count || 0), 0);\nconst now = new Date();\nconst dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'long' });\nconst timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });\nconst lines = rows.map(r =>\n  `  DL:${r.download_status||'-'} | HL:${r.hyperlink_status||'-'} | HLD:${r.hyperlink_download_status||'-'} | BD:${r.bid_extraction_status||'-'} | CAT:${r.to_be_processed_by_gemini||'-'} | GEM:${r.gemini_processing_status||'-'} -> ${r.count}`\n).join('\\n');\nconst message = [\n  '=====================================',\n  '\\u2705 GeM Tender Pipeline Completed', '',\n  'Date: ' + dateStr, 'Time: ' + timeStr,\n  'Total Bid Count: ' + total, '',\n  'Status Summary:', lines,\n  '=====================================',\n].join('\\n');\nreturn [{ json: { message, total, rows } }];"
+      },
+      "id": "152daa4b-50bd-4a6a-9c75-c7b0ee6d9bcf",
+      "name": "Format \u2014 Pipeline Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6264,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// REPLACE with Telegram / Slack / Email / Webhook\n// Use {{ $json.message }} as the body\nconst inp = $input.first().json;\nreturn [{ json: { sent: false, message: inp.message, total: inp.total } }];"
+      },
+      "id": "9bc1360a-51e5-4271-8254-2d2914e17ad6",
+      "name": "Success Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6520,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "cd /opt/gem-sync && if [ -f /tmp/gem-sync.pid ] && kill -0 $(cat /tmp/gem-sync.pid) 2>/dev/null; then echo SYNC_ALREADY_RUNNING; else nohup bash -c \"INGEST_URL=\\\"https://ibunbqjbjxxmlthuqihj.functions.supabase.co/gem-vds-ingest\\\" GEM_VDS_INGEST_TOKEN=\\\"HlY85JsSmPgQFHXVuOznoD05tThbPd3Kmw0ovlaLvc\\\" VDS_PG_URL=\\\"postgres://gem_user:gem_pass@localhost:5432/gem_enterprise\\\" timeout 240 node push.mjs; INGEST_URL=\\\"https://ibunbqjbjxxmlthuqihj.functions.supabase.co/gem-vds-ingest\\\" GEM_VDS_INGEST_TOKEN=\\\"HlY85JsSmPgQFHXVuOznoD05tThbPd3Kmw0ovlaLvc\\\" VDS_PG_URL=\\\"postgres://gem_user:gem_pass@localhost:5432/gem_enterprise\\\" timeout 240 node push_bid_ra.mjs; rm -f /tmp/gem-sync.pid\" >/tmp/gem-sync.log 2>&1 & echo $! >/tmp/gem-sync.pid; disown; fi; sleep 1; echo EXIT_CODE:0"
+      },
+      "id": "c62fa58d-6c8e-46c9-a95e-0768bcd07831",
+      "name": "Supabase Sync",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        5752,
+        304
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "iK3O6oiBYiaupxTZ",
+          "name": "GeM VDS SSH (annant_BS)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 20 min (8AM\u201310PM IST)": {
+      "main": [
+        [
+          {
+            "node": "Time Gate (8AM\u201310PM IST)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Time Gate (8AM\u201310PM IST)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 1 \u2014 Scrape Bids": {
+      "main": [
+        [
+          {
+            "node": "Stage 1 \u2014 Scrape Bids OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 1 \u2014 Scrape Bids OK?": {
+      "main": [
+        [
+          {
+            "node": "Stage 2 \u2014 Download PDFs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 1 Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 2 \u2014 Download PDFs": {
+      "main": [
+        [
+          {
+            "node": "Stage 2 \u2014 Download PDFs OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 2 \u2014 Download PDFs OK?": {
+      "main": [
+        [
+          {
+            "node": "Stage 3 \u2014 Extract Hyperlinks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 2 Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 3 \u2014 Extract Hyperlinks": {
+      "main": [
+        [
+          {
+            "node": "Stage 3 \u2014 Extract Hyperlinks OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 3 \u2014 Extract Hyperlinks OK?": {
+      "main": [
+        [
+          {
+            "node": "Stage 4 \u2014 Download Hyperlinks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 3 Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 4 \u2014 Download Hyperlinks": {
+      "main": [
+        [
+          {
+            "node": "Stage 4 \u2014 Download Hyperlinks OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 4 \u2014 Download Hyperlinks OK?": {
+      "main": [
+        [
+          {
+            "node": "Stage 5 \u2014 Bid Data Processing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 4 Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 5 \u2014 Bid Data Processing": {
+      "main": [
+        [
+          {
+            "node": "Stage 5 \u2014 Bid Data Processing OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 5 \u2014 Bid Data Processing OK?": {
+      "main": [
+        [
+          {
+            "node": "Stage 6 \u2014 Category Processing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 5 Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 6 \u2014 Category Processing": {
+      "main": [
+        [
+          {
+            "node": "Stage 6 \u2014 Category Processing OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 6 \u2014 Category Processing OK?": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL \u2014 Summary Query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 6 Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 7 \u2014 Gemini AI Processing": {
+      "main": [
+        [
+          {
+            "node": "Stage 7 \u2014 Gemini AI Processing OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 7 \u2014 Gemini AI Processing OK?": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL \u2014 Summary Query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 7 Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL \u2014 Summary Query": {
+      "main": [
+        [
+          {
+            "node": "Supabase Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format \u2014 Pipeline Summary": {
+      "main": [
+        [
+          {
+            "node": "Success Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Sync": {
+      "main": [
+        [
+          {
+            "node": "Format \u2014 Pipeline Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Time Gate (8AM\u201310PM IST)": {
+      "main": [
+        []
+      ]
+    },
+    "CPU Check (<80%)": {
+      "main": [
+        [
+          {
+            "node": "CPU OK? (<80%)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CPU OK? (<80%)": {
+      "main": [
+        [
+          {
+            "node": "Stage 1 \u2014 Scrape Bids",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CPU High \u2014 Skip Cycle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "Asia/Kolkata",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": {
+    "node:Daily 02:00 IST": {
+      "recurrenceRules": []
+    },
+    "node:8AM\u201310PM IST every 30min": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": null,
+  "pinData": {},
+  "versionId": "48c59b12-00cd-49f0-a2dd-fb403c87d025",
+  "activeVersionId": null,
+  "versionCounter": 25,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-06-30T14:08:46.404Z",
+      "createdAt": "2026-06-30T14:08:46.404Z",
+      "role": "workflow:owner",
+      "workflowId": "lROCGtK40qKaHX52",
+      "projectId": "pgalII1QPxiEEwiA",
+      "project": {
+        "updatedAt": "2026-06-24T11:28:02.601Z",
+        "createdAt": "2026-06-24T11:10:14.886Z",
+        "id": "pgalII1QPxiEEwiA",
+        "name": "Ayush Kumar <ayushtilakmaidan@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "4bb2c010-ff07-453a-aa0c-ce1f55e4bb16"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}
